@@ -1,0 +1,6 @@
+@AquaPass_HostAddress = http://localhost:5244
+
+GET {{AquaPass_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
