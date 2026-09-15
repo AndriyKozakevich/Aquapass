@@ -4,6 +4,7 @@ using AquaPass.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace AquaPass.Controllers;
 
@@ -15,13 +16,60 @@ public class PaymentsController : ControllerBase
     private readonly IEmailService _emailService;
     private readonly ITicketPdfGenerator _pdfGenerator;
     private readonly AppDbContext _context;
+    private readonly ILogger<PaymentsController> _logger;
 
-    public PaymentsController(IMonobankPaymentService monobankService, IEmailService emailService, ITicketPdfGenerator pdfGenerator, AppDbContext context)
+    public PaymentsController(IMonobankPaymentService monobankService, IEmailService emailService, ITicketPdfGenerator pdfGenerator, AppDbContext context, ILogger<PaymentsController> logger)
     {
         _monobankService = monobankService;
         _emailService = emailService;
         _pdfGenerator = pdfGenerator;
         _context = context;
+        _logger = logger;
+    }
+
+    // Endpoint for frontend to call after redirect (e.g., when Monobank redirect includes paid=true)
+    // Marks order as paid and sends confirmation email. Use POST from frontend: POST /api/payments/confirm/{orderId}
+    [AllowAnonymous]
+    [HttpPost("confirm/{orderId:guid}")]
+    public async Task<IActionResult> ConfirmPayment(Guid orderId)
+    {
+        try
+        {
+            _logger.LogInformation("ConfirmPayment called for order {OrderId}", orderId);
+
+            var order = await _context.Orders
+                .Include(o => o.Tickets)
+                .FirstOrDefaultAsync(o => o.Id == orderId);
+
+            if (order == null) return NotFound(new { message = "Order not found" });
+
+            if (order.Status == "Paid") return Ok(new { message = "Already paid" });
+
+            order.Status = "Paid";
+            foreach (var ticket in order.Tickets)
+            {
+                ticket.Status = "Active";
+            }
+
+            await _context.SaveChangesAsync();
+
+            var pdf = _pdfGenerator.GenerateOrderTicketsPdf(order);
+            await _emailService.SendOrderConfirmationAsync(
+                order.CustomerEmail,
+                $"{order.CustomerFirstName} {order.CustomerLastName}",
+                order.OrderNumber,
+                pdf
+            );
+
+            _logger.LogInformation("Order {OrderId} confirmed and email sent", orderId);
+
+            return Ok(new { success = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error confirming payment for order {OrderId}", orderId);
+            return BadRequest(new { success = false, error = ex.Message });
+        }
     }
 
     // 1. Клієнт викликає для отримання посилання на оплату
@@ -51,31 +99,42 @@ public class PaymentsController : ControllerBase
     [HttpPost("mono-webhook")]
     public async Task<IActionResult> MonoWebhook([FromBody] MonoWebhookPayload payload)
     {
-        if (payload.Status == "success" && Guid.TryParse(payload.Reference, out var orderId))
+        try
         {
-            var order = await _context.Orders
-                .Include(o => o.Tickets)
-                .FirstOrDefaultAsync(o => o.Id == orderId);
-
-            if (order != null && order.Status != "Paid")
+            if (payload.Status == "success" && Guid.TryParse(payload.Reference, out var orderId))
             {
-                order.Status = "Paid";
-                // активуємо або оновлюємо статуси квитків
-                foreach (var ticket in order.Tickets)
+                _logger.LogInformation("MonoWebhook received success for order {OrderId}", orderId);
+
+                var order = await _context.Orders
+                    .Include(o => o.Tickets)
+                    .FirstOrDefaultAsync(o => o.Id == orderId);
+
+                if (order != null && order.Status != "Paid")
                 {
-                    ticket.Status = "Active";
+                    order.Status = "Paid";
+                    foreach (var ticket in order.Tickets)
+                    {
+                        ticket.Status = "Active";
+                    }
+
+                    await _context.SaveChangesAsync();
+
+                    var pdf = _pdfGenerator.GenerateOrderTicketsPdf(order);
+                    await _emailService.SendOrderConfirmationAsync(
+                        order.CustomerEmail,
+                        $"{order.CustomerFirstName} {order.CustomerLastName}",
+                        order.OrderNumber,
+                        pdf
+                    );
+
+                    _logger.LogInformation("Payment processed and email sent for order {OrderId}", orderId);
                 }
-
-                await _context.SaveChangesAsync();
-
-                var pdf = _pdfGenerator.GenerateOrderTicketsPdf(order);
-                await _emailService.SendOrderConfirmationAsync(
-                    order.CustomerEmail,
-                    $"{order.CustomerFirstName} {order.CustomerLastName}",
-                    order.OrderNumber,
-                    pdf
-                );
             }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing MonoWebhook payload");
+            // swallow exception to ensure 200 response to the gateway, but log for investigation
         }
 
         return Ok();

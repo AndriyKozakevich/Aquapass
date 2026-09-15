@@ -19,6 +19,8 @@ namespace AquaPass.Services
         {
             return await _context.Sunbeds
                 .AsNoTracking()
+                .OrderBy(s => s.Row)
+                .ThenBy(s => s.Number)
                 .Select(s => new SunbedResponseDto
                 {
                     Id = s.Id,
@@ -26,7 +28,7 @@ namespace AquaPass.Services
                     Row = s.Row,
                     ZoneId = s.ZoneId,
                     Description = s.Description,
-                    IsAvailable = s.IsAvailable
+                    IsAvailable = true
                 })
                 .ToListAsync();
         }
@@ -43,7 +45,7 @@ namespace AquaPass.Services
                     Row = s.Row,
                     ZoneId = s.ZoneId,
                     Description = s.Description,
-                    IsAvailable = s.IsAvailable
+                    IsAvailable = true
                 })
                 .FirstOrDefaultAsync();
 
@@ -57,6 +59,7 @@ namespace AquaPass.Services
             return await _context.Sunbeds
                 .AsNoTracking()
                 .Where(s => s.Row == row)
+                .OrderBy(s => s.Number)
                 .Select(s => new SunbedResponseDto
                 {
                     Id = s.Id,
@@ -64,18 +67,18 @@ namespace AquaPass.Services
                     Row = s.Row,
                     ZoneId = s.ZoneId,
                     Description = s.Description,
-                    IsAvailable = s.IsAvailable
+                    IsAvailable = true
                 })
                 .ToListAsync();
         }
 
         public async Task<List<SunbedResponseDto>> GetAvailableSeubedsAsync(DateTime visitDate)
         {
-            // 1. Примусово конвертуємо дату в UTC та беремо початок і кінець доби
+            // 1. Конвертуємо дату в UTC діапазон повної доби
             var utcDate = DateTime.SpecifyKind(visitDate.Date, DateTimeKind.Utc);
             var nextDayUtc = utcDate.AddDays(1);
 
-            // 2. Фільтруємо за діапазоном дат через UTC
+            // 2. Отримуємо ID зайнятих шезлонгів на цю дату
             var bookedSunbedIds = await _context.Tickets
                 .Where(t => t.Order.VisitDate >= utcDate
                          && t.Order.VisitDate < nextDayUtc
@@ -86,15 +89,19 @@ namespace AquaPass.Services
 
             var bookedSet = bookedSunbedIds.ToHashSet();
 
+            // 3. Віддаємо шезлонги з динамічним прапорцем доступності
             var allSunbeds = await _context.Sunbeds
-                .OrderBy(s => s.Number)
+                .AsNoTracking()
+                .OrderBy(s => s.Row)
+                .ThenBy(s => s.Number)
                 .Select(s => new SunbedResponseDto
                 {
                     Id = s.Id,
                     Number = s.Number,
+                    Row = s.Row,
                     ZoneId = s.ZoneId,
-                    IsAvailable = !bookedSet.Contains(s.Id),
-                    Row = s.Row
+                    Description = s.Description,
+                    IsAvailable = !bookedSet.Contains(s.Id)
                 })
                 .ToListAsync();
 
@@ -113,7 +120,7 @@ namespace AquaPass.Services
                     Row = s.Row,
                     ZoneId = s.ZoneId,
                     Description = s.Description,
-                    IsAvailable = s.IsAvailable
+                    IsAvailable = true
                 })
                 .ToListAsync();
         }
@@ -124,9 +131,9 @@ namespace AquaPass.Services
 
         public async Task<SunbedResponseDto> CreateAsync(SunbedCreateDto sunbedDto)
         {
-            if(sunbedDto.ZoneId == Guid.Empty)
+            if (sunbedDto.ZoneId == Guid.Empty)
             {
-                sunbedDto.ZoneId = Guid.Parse("22222222-2222-2222-2222-222222222222"); // Присвоюємо значення за замовчуванням
+                sunbedDto.ZoneId = Guid.Parse("22222222-2222-2222-2222-222222222222");
             }
 
             var sunbed = new Sunbed
@@ -134,7 +141,7 @@ namespace AquaPass.Services
                 Id = Guid.NewGuid(),
                 Number = sunbedDto.Number,
                 Row = sunbedDto.Row,
-                ZoneId = sunbedDto.ZoneId, // Присвоюємо ZoneId
+                ZoneId = sunbedDto.ZoneId,
                 Description = string.Empty
             };
 
@@ -148,14 +155,13 @@ namespace AquaPass.Services
                 Row = sunbed.Row,
                 ZoneId = sunbed.ZoneId,
                 Description = sunbed.Description,
-                IsAvailable = sunbed.IsAvailable
+                IsAvailable = true
             };
         }
 
-        // Зручний метод для швидкого створення ряду шезлонгів
         public async Task CreateRangeAsync(string row, int count)
         {
-            var ZoneId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+            var defaultZoneId = Guid.Parse("22222222-2222-2222-2222-222222222222");
             var sunbeds = new List<Sunbed>();
 
             for (int i = 1; i <= count; i++)
@@ -165,7 +171,7 @@ namespace AquaPass.Services
                     Id = Guid.NewGuid(),
                     Row = row,
                     Number = i,
-                    ZoneId = ZoneId,
+                    ZoneId = defaultZoneId,
                     Description = string.Empty
                 });
             }
@@ -186,17 +192,6 @@ namespace AquaPass.Services
 
             existing.Number = dto.Number;
             existing.Row = dto.Row;
-
-            await _context.SaveChangesAsync();
-        }
-
-        public async Task ToggleAvailabilityAsync(Guid id, bool isAvailable)
-        {
-            var sunbed = await _context.Sunbeds.FindAsync(id);
-
-            if (sunbed == null) throw new KeyNotFoundException($"Sunbed with ID {id} not found.");
-
-            sunbed.IsAvailable = isAvailable;
 
             await _context.SaveChangesAsync();
         }

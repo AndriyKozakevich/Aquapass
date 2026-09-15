@@ -111,22 +111,6 @@ namespace AquaPass.Controllers
             }
         }
 
-        // PATCH: api/Sunbed/{id}/status?isAvailable=true
-        [HttpPatch("{id:guid}/status")]
-        public async Task<IActionResult> ToggleAvailability(Guid id, [FromQuery] bool isAvailable)
-        {
-            try
-            {
-                await _sunbedService.ToggleAvailabilityAsync(id, isAvailable);
-
-                return NoContent();
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(new { message = ex.Message });
-            }
-        }
-
         #endregion
 
         #region DELETE Operations
