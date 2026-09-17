@@ -33,6 +33,7 @@ public class TicketService : ITicketService
         }
 
         var guestName = $"{order.CustomerLastName} {order.CustomerFirstName}".Trim();
+
         if (string.IsNullOrWhiteSpace(guestName))
         {
             guestName = order.CustomerEmail;

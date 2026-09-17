@@ -4,6 +4,7 @@ using AquaPass.ModelsDto;
 using AquaPass.Services;
 using AquaPass.Models;
 using Microsoft.AspNetCore.Authorization;
+using AquaPass.Extensions;
 
 namespace AquaPass.Controllers
 {
@@ -32,6 +33,8 @@ namespace AquaPass.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+        var invalid = this.ValidateId(id, nameof(id));
+        if (invalid != null) return invalid;
             var tariff = await _service.GetByIdAsync(id);
             if (tariff == null) return NotFound();
             return Ok(tariff);
@@ -90,6 +93,8 @@ namespace AquaPass.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, [FromBody] TariffUpdateDto dto)
         {
+        var invalid = this.ValidateId(id, nameof(id));
+        if (invalid != null) return invalid;
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
             try

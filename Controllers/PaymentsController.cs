@@ -3,6 +3,7 @@ using AquaPass.ModelsDto.Monobank;
 using AquaPass.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AquaPass.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -33,6 +34,8 @@ public class PaymentsController : ControllerBase
     [HttpPost("confirm/{orderId:guid}")]
     public async Task<IActionResult> ConfirmPayment(Guid orderId)
     {
+        var invalid = this.ValidateId(orderId, nameof(orderId));
+        if (invalid != null) return invalid;
         try
         {
             _logger.LogInformation("ConfirmPayment called for order {OrderId}", orderId);
@@ -77,6 +80,8 @@ public class PaymentsController : ControllerBase
     [HttpPost("create-checkout/{orderId:guid}")]
     public async Task<IActionResult> CreateCheckout(Guid orderId)
     {
+        var invalid = this.ValidateId(orderId, nameof(orderId));
+        if (invalid != null) return invalid;
         var order = await _context.Orders.FindAsync(orderId);
         if (order == null) return NotFound(new { message = "Замовлення не знайдено" });
 

@@ -7,10 +7,12 @@ namespace AquaPass.Services
     public class SunbedService
     {
         private readonly AppDbContext _context;
+        private readonly SunbedHoldService _holdService;
 
-        public SunbedService(AppDbContext context)
+        public SunbedService(AppDbContext context, SunbedHoldService holdService)
         {
             _context = context;
+            _holdService = holdService;
         }
 
         #region Read Operations
@@ -72,13 +74,12 @@ namespace AquaPass.Services
                 .ToListAsync();
         }
 
-        public async Task<List<SunbedResponseDto>> GetAvailableSeubedsAsync(DateTime visitDate)
+        public async Task<List<SunbedResponseDto>> GetAvailableSeubedsAsync(DateTime visitDate, string? holdToken = null)
         {
-            // 1. Конвертуємо дату в UTC діапазон повної доби
             var utcDate = DateTime.SpecifyKind(visitDate.Date, DateTimeKind.Utc);
             var nextDayUtc = utcDate.AddDays(1);
 
-            // 2. Отримуємо ID зайнятих шезлонгів на цю дату
+            // 1. Зайняті квитками в базі PostgreSQL
             var bookedSunbedIds = await _context.Tickets
                 .Where(t => t.Order.VisitDate >= utcDate
                          && t.Order.VisitDate < nextDayUtc
@@ -87,10 +88,17 @@ namespace AquaPass.Services
                 .Select(t => t.SunbedId!.Value)
                 .ToListAsync();
 
-            var bookedSet = bookedSunbedIds.ToHashSet();
+            var unavailableSet = bookedSunbedIds.ToHashSet();
 
-            // 3. Віддаємо шезлонги з динамічним прапорцем доступності
-            var allSunbeds = await _context.Sunbeds
+            // 2. Тимчасово заблоковані в Redis іншими користувачами
+            var heldIds = await _holdService.GetHeldSunbedIdsAsync(visitDate, holdToken);
+            foreach (var id in heldIds)
+            {
+                unavailableSet.Add(id);
+            }
+
+            // 3. Формуємо відповідь
+            return await _context.Sunbeds
                 .AsNoTracking()
                 .OrderBy(s => s.Row)
                 .ThenBy(s => s.Number)
@@ -101,11 +109,9 @@ namespace AquaPass.Services
                     Row = s.Row,
                     ZoneId = s.ZoneId,
                     Description = s.Description,
-                    IsAvailable = !bookedSet.Contains(s.Id)
+                    IsAvailable = !unavailableSet.Contains(s.Id)
                 })
                 .ToListAsync();
-
-            return allSunbeds;
         }
 
         public async Task<List<SunbedResponseDto>> GetByRowAndNumberAsync(string row, int number)

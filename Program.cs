@@ -8,6 +8,7 @@ using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Text.Json.Serialization;
 using QuestPDF.Infrastructure;
+using StackExchange.Redis;
 
 namespace AquaPass
 {
@@ -22,8 +23,15 @@ namespace AquaPass
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+            // 1. Підключення бази даних Redis
+            builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+            {
+                var configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+                return ConnectionMultiplexer.Connect(configuration);
+            });
+
             // 2. Реєстрація сервісів (DI)
-            builder.Services.AddControllers()
+            builder.Services.AddControllers(options => options.Filters.Add(new AquaPass.Filters.ValidateModelAttribute()))
     .AddJsonOptions(options =>
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
             builder.Services.AddScoped<SunbedService>();
@@ -36,6 +44,8 @@ namespace AquaPass
             builder.Services.AddScoped<IQrCodeService, QrCodeService>();
             builder.Services.AddScoped<ITicketPdfGenerator, TicketPdfGenerator>();
             builder.Services.AddScoped<IEmailService, EmailService>();
+            // SunbedHoldService is safe as singleton because it uses a singleton IConnectionMultiplexer
+            builder.Services.AddSingleton<SunbedHoldService>();
 
             // 3. Налаштування JWT
             var jwtKey = builder.Configuration["Jwt:Key"] ?? "MineSuperSecretKeyThatIsAtLeast32BytesLong!";

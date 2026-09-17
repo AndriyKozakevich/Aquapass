@@ -2,6 +2,7 @@
 using AquaPass.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AquaPass.Extensions;
 
 namespace AquaPass.Controllers
 {

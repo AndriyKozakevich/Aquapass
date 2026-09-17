@@ -2,6 +2,7 @@
 using AquaPass.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AquaPass.Extensions;
 
 namespace AquaPass.Controllers
 {
@@ -10,10 +11,12 @@ namespace AquaPass.Controllers
     public class SunbedController : ControllerBase
     {
         private readonly SunbedService _sunbedService;
+        private readonly SunbedHoldService _holdService;
 
-        public SunbedController(SunbedService sunbedService)
+        public SunbedController(SunbedService sunbedService, SunbedHoldService holdService)
         {
             _sunbedService = sunbedService;
+            _holdService = holdService;
         }
 
         #region GET Operations
@@ -31,6 +34,8 @@ namespace AquaPass.Controllers
         [HttpGet("{id:guid}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            var invalid = this.ValidateId(id, nameof(id));
+            if (invalid != null) return invalid;
             try
             {
                 var sunbed = await _sunbedService.GetByIdAsync(id);
@@ -99,6 +104,8 @@ namespace AquaPass.Controllers
         [HttpPut("{id:guid}")]
         public async Task<IActionResult> Update(Guid id, [FromBody] SunbedUpdateDto dto)
         {
+            var invalid = this.ValidateId(id, nameof(id));
+            if (invalid != null) return invalid;
             try
             {
                 await _sunbedService.UpdateAsync(id, dto);
@@ -132,5 +139,40 @@ namespace AquaPass.Controllers
         }
 
         #endregion
+        [HttpPost("{id:guid}/hold")]
+        public async Task<IActionResult> HoldSunbed(
+    Guid id,
+    [FromBody] HoldSunbedRequest req)
+        {
+            var invalid = this.ValidateId(id, nameof(id));
+            if (invalid != null) return invalid;
+            if (string.IsNullOrWhiteSpace(req.HoldToken))
+            {
+                return BadRequest(new { message = "Необхідний holdToken сесії" });
+            }
+
+            // Блокуємо рівно на 5 хвилин
+            var locked = await _holdService.HoldSunbedAsync(id, req.VisitDate, req.HoldToken, TimeSpan.FromMinutes(5));
+
+            if (!locked)
+            {
+                return Conflict(new { message = "Шезлонг вже обраний або оформлюється іншим відвідувачем" });
+            }
+
+            return Ok(new { message = "Шезлонг заблоковано на 5 хвилин", expiresMinutes = 5 });
+        }
+
+        [HttpPost("{id:guid}/release-hold")]
+        public async Task<IActionResult> ReleaseHold(
+    Guid id,
+    [FromBody] HoldSunbedRequest req)
+        {
+            var invalid = this.ValidateId(id, nameof(id));
+            if (invalid != null) return invalid;
+            await _holdService.ReleaseHoldAsync(id, req.VisitDate, req.HoldToken);
+
+            return Ok(new { message = "Блокування знято" });
+        }
+
     }
 }

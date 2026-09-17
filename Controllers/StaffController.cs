@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using AquaPass.ModelsDto;
 using AquaPass.Services;
+using AquaPass.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -68,6 +69,8 @@ public class StaffController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
+        var invalid = this.ValidateId(id, nameof(id));
+        if (invalid != null) return invalid;
         var currentUserIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
         _ = Guid.TryParse(currentUserIdStr, out var currentAdminId);
 
